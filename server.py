@@ -1,56 +1,75 @@
 import socket
 import threading
+import os
 
-# Bağlantı Ayarları
-HOST = '127.0.0.1'  # Kendi bilgisayarın (Localhost)
-PORT = 55555      # Boş bir port seçtik
+HOST = '127.0.0.1'
+PORT = 55555
 
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 server.bind((HOST, PORT))
 server.listen()
 
 clients = []
 nicknames = []
 
-# Mesajı herkese gönder
-def broadcast(message):
+def broadcast(message, sender_client=None):
     for client in clients:
-        client.send(message)
+        if client != sender_client:
+            try:
+                client.send(message)
+            except:
+                continue
 
-# İstemci ile iletişimi yönet
 def handle(client):
     while True:
         try:
-            message = client.recv(1024)
-            broadcast(message)
+            data = client.recv(4096)
+            if not data: break
+
+            # --- DOSYA TRANSFERİ BAŞLIYOR ---
+            if data.startswith(b"__FILE__"):
+                header = data.decode('utf-8').split(":")
+                f_name = header[1]
+                f_size = int(header[2])
+                
+                print(f"Dosya Transferi: {f_name} ({f_size} bytes)")
+
+                # Diğerlerine duyur (Gönderen hariç)
+                broadcast(f"__FILE__:{f_name}:{f_size}".encode('utf-8'), sender_client=client)
+                
+                remaining = f_size
+                with open("server_copy_" + f_name, "wb") as f:
+                    while remaining > 0:
+                        chunk = client.recv(min(remaining, 4096))
+                        if not chunk: break
+                        f.write(chunk)
+                        # Alınan her parçayı (chunk) diğerlerine anında gönder
+                        broadcast(chunk, sender_client=client)
+                        remaining -= len(chunk)
+                
+                client.send("FILE_OK".encode('utf-8'))
+                print(f"{f_name} başarıyla dağıtıldı.")
+            
+            # --- NORMAL MESAJ ---
+            else:
+                broadcast(data)
         except:
-            # Bağlantı koptuğunda listeleri temizle
-            index = clients.index(client)
-            clients.remove(client)
-            client.close()
-            nickname = nicknames[index]
-            broadcast(f'{nickname} ayrıldı!'.encode('utf-8'))
-            nicknames.remove(nickname)
+            if client in clients:
+                index = clients.index(client)
+                nickname = nicknames[index]
+                clients.remove(client)
+                nicknames.remove(nickname)
+                client.close()
+                broadcast(f"SİSTEM: {nickname} ayrıldı.".encode('utf-8'))
             break
 
-# Bağlantıları kabul et
-def receive():
-    print("Sunucu dinlemede...")
-    while True:
-        client, address = server.accept()
-        print(f"Bağlantı sağlandı: {str(address)}")
-
-        client.send('NICK'.encode('utf-8'))
-        nickname = client.recv(1024).decode('utf-8')
-        nicknames.append(nickname)
-        clients.append(client)
-
-        print(f"Kullanıcı adı: {nickname}")
-        broadcast(f"{nickname} sohbete katıldı!".encode('utf-8'))
-        client.send('Sunucuya bağlandınız!'.encode('utf-8'))
-
-        
-        thread = threading.Thread(target=handle, args=(client,))
-        thread.start()
-
-receive()
+print("Sunucu Dağıtım Modunda Aktif...")
+while True:
+    c, addr = server.accept()
+    c.send('NICK'.encode('utf-8'))
+    nick = c.recv(1024).decode('utf-8')
+    nicknames.append(nick)
+    clients.append(c)
+    broadcast(f"SİSTEM: {nick} katıldı!".encode('utf-8'))
+    threading.Thread(target=handle, args=(c,)).start()
