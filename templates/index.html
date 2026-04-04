@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Tekin Web Chat v4.1</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1a1a2e; color: white; display: flex; flex-direction: column; align-items: center; }
+        #chat-box { width: 90%; max-width: 600px; height: 450px; background: #16213e; overflow-y: auto; margin: 20px; padding: 15px; border-radius: 10px; border: 1px solid #0f3460; }
+        .msg-line { margin-bottom: 10px; padding: 5px; border-bottom: 1px solid #0f3460; }
+        #input-area { width: 90%; max-width: 600px; display: flex; flex-direction: column; gap: 10px; }
+        .controls { display: flex; gap: 10px; }
+        input[type="text"] { flex: 1; padding: 12px; border-radius: 5px; border: none; }
+        button { padding: 10px 20px; cursor: pointer; background: #e94560; color: white; border: none; border-radius: 5px; font-weight: bold; }
+        #file-input { color: #888; }
+    </style>
+</head>
+<body>
+    <h2>Paşam Web Sohbet Sistemi</h2>
+    <div id="chat-box"></div>
+    
+    <div id="input-area">
+        <input type="text" id="username" placeholder="Nickiniz..." style="width: 150px;">
+        
+        <div class="controls">
+            <input type="text" id="msg" placeholder="Mesajınızı yazın..." onkeypress="handleKeyPress(event)">
+            <button onclick="sendMessage()">GÖNDER</button>
+        </div>
+
+        <div class="controls">
+            <input type="file" id="file-input">
+            <button onclick="sendFile()" style="background: #0f3460;">DOSYA YÜKLE</button>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        const chatBox = document.getElementById('chat-box');
+
+        // Enter tuşuna basıldığında mesajı gönder
+        function handleKeyPress(e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        }
+
+        // Sunucudan gelen verileri ekrana bas (Mesaj veya Dosya)
+        socket.on('response', (data) => {
+            const div = document.createElement('div');
+            div.className = 'msg-line';
+            
+            if (data.type === 'text') {
+                div.innerHTML = `<b>${data.user}:</b> ${data.msg}`;
+            } else if (data.type === 'file') {
+                div.innerHTML = `<b>${data.user}:</b> 📁 <a href="${data.fileData}" download="${data.fileName}" style="color: #4db8ff;">${data.fileName} (İndir)</a>`;
+            }
+            
+            chatBox.appendChild(div);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        });
+
+        // 1. Normal Mesaj Gönder
+        function sendMessage() {
+            const user = document.getElementById('username').value || "Paşam";
+            const msgInput = document.getElementById('msg');
+            if(msgInput.value.trim() !== "") {
+                socket.emit('message', {type: 'text', user: user, msg: msgInput.value});
+                msgInput.value = '';
+            }
+        }
+
+        // 2. Dosya Gönder
+        function sendFile() {
+            const user = document.getElementById('username').value || "Paşam";
+            const fileInput = document.getElementById('file-input');
+            const file = fileInput.files[0];
+
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const fileData = e.target.result;
+                    socket.emit('message', {
+                        type: 'file',
+                        user: user,
+                        fileName: file.name,
+                        fileData: fileData
+                    });
+                };
+                reader.readAsDataURL(file); // Dosyayı Base64'e çevir
+                fileInput.value = ''; // Seçimi temizle
+            }
+        }
+    </script>
+</body>
+</html>
